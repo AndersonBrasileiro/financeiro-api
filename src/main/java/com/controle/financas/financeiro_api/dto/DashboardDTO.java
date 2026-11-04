@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class DashboardDTO {
+    private BigDecimal saldoDisponivel;    
     private BigDecimal totalContasReceberEmAberto;
     private BigDecimal totalContasPagarEmAberto;
     private BigDecimal saldoProjetadoFuturo; // (Receber - Pagar)
