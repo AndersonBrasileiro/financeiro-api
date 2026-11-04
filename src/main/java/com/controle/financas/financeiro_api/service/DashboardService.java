@@ -41,6 +41,6 @@ public class DashboardService {
         BigDecimal projetado = saldoDisponivel.add(receber).subtract(pagar);
 
         // Retorna o DTO com as 4 variáveis perfeitamente alinhadas com o seu construtor
-        return new DashboardDTO(saldoDisponivel, pagar, receber, projetado);
+        return new DashboardDTO(saldoDisponivel, receber, pagar, projetado);
     }
 }
