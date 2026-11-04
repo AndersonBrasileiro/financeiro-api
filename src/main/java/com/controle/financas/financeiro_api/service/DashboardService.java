@@ -4,16 +4,15 @@ import java.math.BigDecimal;
 import org.springframework.stereotype.Service;
 import com.controle.financas.financeiro_api.dto.DashboardDTO;
 import com.controle.financas.financeiro_api.model.Conta;
-import com.controle.financas.financeiro_api.repository.ContaRepository; // 🌟 Importação incluída
+import com.controle.financas.financeiro_api.repository.ContaRepository;
 import com.controle.financas.financeiro_api.repository.LancamentoRepository;
 
 @Service
 public class DashboardService {
 
     private final LancamentoRepository lancamentoRepository;
-    private final ContaRepository contaRepository; // 🌟 Dependência incluída
+    private final ContaRepository contaRepository;
 
-    // Atualização do construtor para injeção de dependências do Spring
     public DashboardService(LancamentoRepository lancamentoRepository, ContaRepository contaRepository) {
         this.lancamentoRepository = lancamentoRepository;
         this.contaRepository = contaRepository;
@@ -37,10 +36,16 @@ public class DashboardService {
         BigDecimal pagar = lancamentoRepository.somarValoresEmAberto(usuarioId, "DESPESA");
         if (pagar == null) pagar = BigDecimal.ZERO;
 
-        // 4. Calcula o saldo projetado futuro (Saldo Disponível + Receber - Pagar)
+        // 4. 🧮 MATEMÁTICA REAL: Saldo Atual + O que vai entrar - O que vai sair
         BigDecimal projetado = saldoDisponivel.add(receber).subtract(pagar);
 
-        // Retorna o DTO com as 4 variáveis perfeitamente alinhadas com o seu construtor
-        return new DashboardDTO(saldoDisponivel, receber, pagar, projetado);
+        // 🌟 CORREÇÃO DEFINTIVA: Atribuição nominal via Setters (Garante o mapeamento correto do JSON)
+        DashboardDTO dto = new DashboardDTO();
+        dto.setSaldoDisponivel(saldoDisponivel);
+        dto.setTotalContasReceberEmAberto(receber);
+        dto.setTotalContasPagarEmAberto(pagar);
+        dto.setSaldoProjetadoFuturo(projetado);
+
+        return dto;
     }
 }
