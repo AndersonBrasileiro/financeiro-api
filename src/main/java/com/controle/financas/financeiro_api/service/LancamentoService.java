@@ -125,7 +125,7 @@ public class LancamentoService {
         movimentacaoRepository.save(movimento);
     }
     @Transactional
-    public Lancamento baixarLancamento(Long id) {
+    public Lancamento baixarLancamento(Long id, LocalDate dataBaixa) {
         Lancamento lancamento = buscarPorId(id);
 
         if (lancamento.isPago()) {
@@ -133,13 +133,14 @@ public class LancamentoService {
         }
 
         lancamento.setPago(true);
-        lancamento.setDataPagamento(LocalDate.now());
+        lancamento.setDataPagamento(dataBaixa != null ? dataBaixa : LocalDate.now());
 
         Lancamento lancamentoAtualizado = lancamentoRepository.save(lancamento);
         efetuarBaixa(lancamentoAtualizado);
 
         return lancamentoAtualizado;
     }
+
 
     @Transactional
     public Lancamento estornarLancamento(Long id) {

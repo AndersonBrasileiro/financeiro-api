@@ -43,11 +43,14 @@ public class LancamentoController {
         return ResponseEntity.ok(lancamentoAtualizado);
     }
 
-    @PutMapping("/{id}/baixar")
-    public ResponseEntity<Lancamento> baixar(@PathVariable Long id) {
-        Lancamento lancamentoBaixado = lancamentoService.baixarLancamento(id);
+        @PutMapping("/{id}/baixar")
+    public ResponseEntity<Lancamento> baixar(
+            @PathVariable Long id,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dataPagamento) {
+        Lancamento lancamentoBaixado = lancamentoService.baixarLancamento(id, dataPagamento);
         return ResponseEntity.ok(lancamentoBaixado);
     }
+
 
     @PutMapping("/{id}/estornar")
     public ResponseEntity<Lancamento> estornar(@PathVariable Long id) {
