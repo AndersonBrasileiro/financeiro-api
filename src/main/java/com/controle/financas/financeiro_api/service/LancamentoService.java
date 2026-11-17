@@ -2,8 +2,9 @@ package com.controle.financas.financeiro_api.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.springframework.security.core.Authentication;
@@ -48,7 +49,8 @@ public class LancamentoService {
         if (categoriaRef == null || categoriaRef.getId() == null) {
             throw new IllegalArgumentException("A categoria do lançamento é obrigatória.");
         }
-        Categoria categoriaCompleta = categoriaRepository.findById(categoriaRef.getId())
+        Long catId = Objects.requireNonNull(categoriaRef.getId());
+        Categoria categoriaCompleta = categoriaRepository.findById(catId)
                 .orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada."));
 
         if (categoriaCompleta.getCategoriaPai() == null) {
@@ -61,6 +63,10 @@ public class LancamentoService {
         validarCategoriaAnalitica(lancamento.getCategoria());
 
         lancamento.setUsuario(getUsuarioLogado());
+        if (lancamento.isPago() && lancamento.getDataPagamento() == null) {
+            lancamento.setDataPagamento(LocalDate.now());
+        }
+
         Lancamento lancamentoSalvo = lancamentoRepository.save(lancamento);
 
         if (lancamentoSalvo.isPago()) {
@@ -92,7 +98,8 @@ public class LancamentoService {
     }
 
     private void efetuarBaixa(Lancamento lancamento) {
-        Conta conta = contaRepository.findById(lancamento.getConta().getId())
+        Long contaId = Objects.requireNonNull(lancamento.getConta().getId(), "ID da conta não pode ser nulo");
+        Conta conta = contaRepository.findById(contaId)
                 .orElseThrow(() -> new IllegalArgumentException("Conta não encontrada com o ID informado."));
 
         BigDecimal valor = lancamento.getValor();
@@ -106,8 +113,11 @@ public class LancamentoService {
         contaRepository.save(conta);
         lancamento.setConta(conta);
 
+        // Registra no extrato com a data exata da baixa informada pelo usuário
+        LocalDate dataRef = lancamento.getDataPagamento() != null ? lancamento.getDataPagamento() : LocalDate.now();
+
         Movimentacao movimento = new Movimentacao();
-        movimento.setDataHora(LocalDateTime.now());
+        movimento.setDataHora(dataRef.atTime(LocalTime.now()));
         movimento.setValor(valor);
         movimento.setConta(conta);
         movimento.setLancamento(lancamento);
@@ -141,7 +151,6 @@ public class LancamentoService {
         return lancamentoAtualizado;
     }
 
-
     @Transactional
     public Lancamento estornarLancamento(Long id) {
         Lancamento lancamento = buscarPorId(id);
@@ -155,7 +164,8 @@ public class LancamentoService {
             movimentacaoRepository.deleteAll(movimentacoes);
         }
 
-        Conta conta = contaRepository.findById(lancamento.getConta().getId())
+        Long contaId = Objects.requireNonNull(lancamento.getConta().getId(), "ID da conta não pode ser nulo");
+        Conta conta = contaRepository.findById(contaId)
                 .orElseThrow(() -> new IllegalArgumentException("Conta vinculada não encontrada."));
 
         BigDecimal valor = lancamento.getValor();
@@ -195,8 +205,9 @@ public class LancamentoService {
     }
 
     public Lancamento buscarPorId(Long id) {
-        Lancamento lancamento = lancamentoRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Lançamento não encontrado com o ID: " + id));
+        Long lancamentoId = Objects.requireNonNull(id, "ID do lançamento não pode ser nulo");
+        Lancamento lancamento = lancamentoRepository.findById(lancamentoId)
+                .orElseThrow(() -> new IllegalArgumentException("Lançamento não encontrado com o ID: " + lancamentoId));
 
         if (!lancamento.getUsuario().getId().equals(getUsuarioLogado().getId())) {
             throw new IllegalArgumentException("Acesso negado a este lançamento.");
@@ -206,7 +217,7 @@ public class LancamentoService {
 
     @Transactional
     public void deletar(Long id) {
-        Lancamento lancamento = buscarPorId(id);
+        Lancamento lancamento = Objects.requireNonNull(buscarPorId(id));
         if (lancamento.isPago()) {
             throw new IllegalStateException("Não é permitido excluir um lançamento que já foi baixado/pago.");
         }
