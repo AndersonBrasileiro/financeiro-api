@@ -1,15 +1,22 @@
 package com.controle.financas.financeiro_api.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.controle.financas.financeiro_api.model.Categoria;
 import com.controle.financas.financeiro_api.model.Conta;
 import com.controle.financas.financeiro_api.model.Lancamento;
 import com.controle.financas.financeiro_api.model.Movimentacao;
 import com.controle.financas.financeiro_api.model.Usuario;
+import com.controle.financas.financeiro_api.repository.CategoriaRepository;
 import com.controle.financas.financeiro_api.repository.ContaRepository;
 import com.controle.financas.financeiro_api.repository.LancamentoRepository;
 import com.controle.financas.financeiro_api.repository.MovimentacaoRepository;
@@ -20,36 +27,40 @@ public class LancamentoService {
     private final LancamentoRepository lancamentoRepository;
     private final ContaRepository contaRepository;
     private final MovimentacaoRepository movimentacaoRepository;
+    private final CategoriaRepository categoriaRepository;
 
-    // Construtor para injeção de dependências profissional (elimina os alertas
-    // amarelos)
     public LancamentoService(LancamentoRepository lancamentoRepository,
             ContaRepository contaRepository,
-            MovimentacaoRepository movimentacaoRepository) {
+            MovimentacaoRepository movimentacaoRepository,
+            CategoriaRepository categoriaRepository) {
         this.lancamentoRepository = lancamentoRepository;
         this.contaRepository = contaRepository;
         this.movimentacaoRepository = movimentacaoRepository;
+        this.categoriaRepository = categoriaRepository;
     }
 
-    /**
-     * REGRA DE NEGÓCIO MULTI-TENANT: Salva um lançamento associando o usuário
-     * logado via Token.
-     */
+    private Usuario getUsuarioLogado() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return (Usuario) auth.getPrincipal();
+    }
+
+    private void validarCategoriaAnalitica(Categoria categoriaRef) {
+        if (categoriaRef == null || categoriaRef.getId() == null) {
+            throw new IllegalArgumentException("A categoria do lançamento é obrigatória.");
+        }
+        Categoria categoriaCompleta = categoriaRepository.findById(categoriaRef.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada."));
+
+        if (categoriaCompleta.getCategoriaPai() == null) {
+            throw new IllegalStateException("Não é permitido lançar diretamente em uma categoria sintética (Grupo Pai). Selecione uma subcategoria analítica.");
+        }
+    }
+
     @Transactional
     public Lancamento salvar(Lancamento lancamento) {
-        // 1. EXTRAÇÃO DO TOKEN: Recupera o objeto do usuário autenticado que o
-        // SecurityFilter colocou no contexto
-        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder
-                .getContext().getAuthentication();
+        validarCategoriaAnalitica(lancamento.getCategoria());
 
-        Usuario usuarioLogado = (Usuario) auth.getPrincipal();
-
-        // 2. INJEÇÃO AUTOMÁTICA: Força o lançamento a pertencer ao dono do token
-        // (Garante a segurança entre inquilinos)
-        lancamento.setUsuario(usuarioLogado);
-
-        // 3. Salva o Lançamento no banco de dados com o ID correto amarrado
-        // internamente
+        lancamento.setUsuario(getUsuarioLogado());
         Lancamento lancamentoSalvo = lancamentoRepository.save(lancamento);
 
         if (lancamentoSalvo.isPago()) {
@@ -59,12 +70,28 @@ public class LancamentoService {
         return lancamentoSalvo;
     }
 
-    /**
-     * MÉTODO AUXILIAR: Executa os impactos financeiros da baixa/pagamento
-     */
+    @Transactional
+    public Lancamento atualizar(Long id, Lancamento dadosAtualizados) {
+        Lancamento lancamentoExistente = buscarPorId(id);
+
+        if (lancamentoExistente.isPago()) {
+            throw new IllegalStateException("Não é permitido alterar um título que já foi liquidado/baixado.");
+        }
+
+        validarCategoriaAnalitica(dadosAtualizados.getCategoria());
+
+        lancamentoExistente.setDescricao(dadosAtualizados.getDescricao());
+        lancamentoExistente.setValor(dadosAtualizados.getValor());
+        lancamentoExistente.setDataVencimento(dadosAtualizados.getDataVencimento());
+        lancamentoExistente.setConta(dadosAtualizados.getConta());
+        lancamentoExistente.setCategoria(dadosAtualizados.getCategoria());
+        lancamentoExistente.setCentroCusto(dadosAtualizados.getCentroCusto());
+        lancamentoExistente.setFavorecido(dadosAtualizados.getFavorecido());
+
+        return lancamentoRepository.save(lancamentoExistente);
+    }
+
     private void efetuarBaixa(Lancamento lancamento) {
-        // CORREÇÃO: Busca a conta completa do banco de dados para carregar o saldo
-        // atual real
         Conta conta = contaRepository.findById(lancamento.getConta().getId())
                 .orElseThrow(() -> new IllegalArgumentException("Conta não encontrada com o ID informado."));
 
@@ -76,11 +103,7 @@ public class LancamentoService {
             conta.setSaldoAtual(conta.getSaldoAtual().subtract(valor));
         }
 
-        // Salva a conta com o saldo atualizado
         contaRepository.save(conta);
-
-        // Atualiza a referência da conta dentro do lançamento para salvar os dados
-        // consistentes
         lancamento.setConta(conta);
 
         Movimentacao movimento = new Movimentacao();
@@ -101,72 +124,91 @@ public class LancamentoService {
 
         movimentacaoRepository.save(movimento);
     }
-
-    /**
-     * REGRA DE NEGÓCIO: Liquida/Baixa um lançamento que estava em aberto.
-     */
     @Transactional
     public Lancamento baixarLancamento(Long id) {
-        // 1. Busca o lançamento pelo ID
-        Lancamento lancamento = lancamentoRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Lançamento não encontrado com o ID: " + id));
+        Lancamento lancamento = buscarPorId(id);
 
-        // 2. Validação: Impede baixar uma conta que já foi paga anteriormente
         if (lancamento.isPago()) {
             throw new IllegalStateException("Este lançamento já encontra-se baixado/pago.");
         }
 
-        // 3. Atualiza o status do título para o momento atual
         lancamento.setPago(true);
-        lancamento.setDataPagamento(java.time.LocalDate.now());
+        lancamento.setDataPagamento(LocalDate.now());
 
-        // 4. Salva a alteração do título
         Lancamento lancamentoAtualizado = lancamentoRepository.save(lancamento);
-
-        // 5. Dispara o impacto financeiro (reutilizando a lógica que criamos de saldo e
-        // extrato)
         efetuarBaixa(lancamentoAtualizado);
 
         return lancamentoAtualizado;
     }
 
-       /**
-     * REGRA DE NEGÓCIO MULTI-TENANT: Retorna apenas os lançamentos pertencentes ao usuário autenticado.
-     */
-    public java.util.List<Lancamento> listarTodos() {
-        // 1. EXTRAÇÃO DO TOKEN: Recupera o usuário logado do contexto de segurança do Spring
-        org.springframework.security.core.Authentication auth = 
-            org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        
-        Usuario usuarioLogado = (Usuario) auth.getPrincipal();
+    @Transactional
+    public Lancamento estornarLancamento(Long id) {
+        Lancamento lancamento = buscarPorId(id);
 
-        // 2. FILTRO SEGURO: Busca tudo e filtra apenas o que pertence ao ID do usuário autenticado
+        if (!lancamento.isPago()) {
+            throw new IllegalStateException("Apenas títulos já baixados/pagos podem ser estornados.");
+        }
+
+        List<Movimentacao> movimentacoes = movimentacaoRepository.findByLancamentoId(lancamento.getId());
+        if (!movimentacoes.isEmpty()) {
+            movimentacaoRepository.deleteAll(movimentacoes);
+        }
+
+        Conta conta = contaRepository.findById(lancamento.getConta().getId())
+                .orElseThrow(() -> new IllegalArgumentException("Conta vinculada não encontrada."));
+
+        BigDecimal valor = lancamento.getValor();
+        if ("RECEITA".equalsIgnoreCase(lancamento.getTipoLancamento())) {
+            conta.setSaldoAtual(conta.getSaldoAtual().subtract(valor));
+        } else if ("DESPESA".equalsIgnoreCase(lancamento.getTipoLancamento())) {
+            conta.setSaldoAtual(conta.getSaldoAtual().add(valor));
+        }
+        contaRepository.save(conta);
+
+        lancamento.setPago(false);
+        lancamento.setDataPagamento(null);
+
+        return lancamentoRepository.save(lancamento);
+    }
+
+    public List<Lancamento> listarTodos() {
+        Usuario usuarioLogado = getUsuarioLogado();
         return lancamentoRepository.findAll().stream()
-            .filter(l -> l.getUsuario().getId().equals(usuarioLogado.getId()))
-            .collect(java.util.stream.Collectors.toList());
+                .filter(l -> l.getUsuario().getId().equals(usuarioLogado.getId()))
+                .collect(Collectors.toList());
     }
 
+    public List<Lancamento> filtrar(String tipoLancamento, LocalDate dataInicio, LocalDate dataFim,
+            Long contaId, Long centroCustoId, Long categoriaId) {
+        Usuario usuarioLogado = getUsuarioLogado();
 
-    /**
-     * REGRA DE NEGÓCIO: Busca os detalhes de um lançamento específico pelo ID.
-     */
+        return lancamentoRepository.findAll().stream()
+                .filter(l -> l.getUsuario().getId().equals(usuarioLogado.getId()))
+                .filter(l -> tipoLancamento == null || tipoLancamento.isBlank() || l.getTipoLancamento().equalsIgnoreCase(tipoLancamento))
+                .filter(l -> dataInicio == null || !l.getDataVencimento().isBefore(dataInicio))
+                .filter(l -> dataFim == null || !l.getDataVencimento().isAfter(dataFim))
+                .filter(l -> contaId == null || (l.getConta() != null && l.getConta().getId().equals(contaId)))
+                .filter(l -> centroCustoId == null || (l.getCentroCusto() != null && l.getCentroCusto().getId().equals(centroCustoId)))
+                .filter(l -> categoriaId == null || (l.getCategoria() != null && l.getCategoria().getId().equals(categoriaId)))
+                .collect(Collectors.toList());
+    }
+
     public Lancamento buscarPorId(Long id) {
-        return lancamentoRepository.findById(id)
+        Lancamento lancamento = lancamentoRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Lançamento não encontrado com o ID: " + id));
+
+        if (!lancamento.getUsuario().getId().equals(getUsuarioLogado().getId())) {
+            throw new IllegalArgumentException("Acesso negado a este lançamento.");
+        }
+        return lancamento;
     }
 
-    /**
-     * REGRA DE NEGÓCIO: Deleta um lançamento do sistema.
-     */
     @Transactional
     public void deletar(Long id) {
         Lancamento lancamento = buscarPorId(id);
-        // Validação Comercial: Impede deletar uma conta que já foi paga para não furar
-        // o caixa retroativamente
         if (lancamento.isPago()) {
             throw new IllegalStateException("Não é permitido excluir um lançamento que já foi baixado/pago.");
         }
         lancamentoRepository.delete(lancamento);
     }
-
 }

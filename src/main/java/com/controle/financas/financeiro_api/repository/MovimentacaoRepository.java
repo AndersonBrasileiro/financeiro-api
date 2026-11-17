@@ -10,4 +10,7 @@ public interface MovimentacaoRepository extends JpaRepository<Movimentacao, Long
     
     // Puxa o extrato de uma conta específica ordenado pelas datas mais recentes
     List<Movimentacao> findByContaIdOrderByDataHoraDesc(Long contaId);
+    // Localiza a movimentação gerada pela baixa de um lançamento específico (para estorno)
+    List<Movimentacao> findByLancamentoId(Long lancamentoId);
 }
+
