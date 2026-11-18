@@ -12,5 +12,7 @@ public interface MovimentacaoRepository extends JpaRepository<Movimentacao, Long
     List<Movimentacao> findByContaIdOrderByDataHoraDesc(Long contaId);
     // Localiza a movimentação gerada pela baixa de um lançamento específico (para estorno)
     List<Movimentacao> findByLancamentoId(Long lancamentoId);
+    List<Movimentacao> findByTransferenciaId(Long transferenciaId);
+
 }
 
