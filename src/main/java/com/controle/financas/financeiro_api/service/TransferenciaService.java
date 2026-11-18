@@ -20,6 +20,7 @@ import com.controle.financas.financeiro_api.model.Usuario;
 import com.controle.financas.financeiro_api.repository.ContaRepository;
 import com.controle.financas.financeiro_api.repository.MovimentacaoRepository;
 import com.controle.financas.financeiro_api.repository.TransferenciaRepository;
+import com.controle.financas.financeiro_api.dto.TransferenciaDTO;
 
 @Service
 public class TransferenciaService {
@@ -91,13 +92,20 @@ public class TransferenciaService {
         return transferenciaSalva;
     }
 
-    public List<Transferencia> listarTodas() {
+    @Transactional(readOnly = true)
+    public List<TransferenciaDTO> listarTodas() {
         Usuario usuarioLogado = getUsuarioLogado();
         return transferenciaRepository.findAll().stream()
-                .filter(t -> t.getUsuario().getId().equals(usuarioLogado.getId()))
-                .sorted((a, b) -> b.getDataTransferencia().compareTo(a.getDataTransferencia()))
+                .filter(t -> t.getUsuario() != null && t.getUsuario().getId().equals(usuarioLogado.getId()))
+                .sorted((a, b) -> {
+                    LocalDate dataA = a.getDataTransferencia() != null ? a.getDataTransferencia() : LocalDate.MIN;
+                    LocalDate dataB = b.getDataTransferencia() != null ? b.getDataTransferencia() : LocalDate.MIN;
+                    return dataB.compareTo(dataA);
+                })
+                .map(TransferenciaDTO::new)
                 .collect(Collectors.toList());
     }
+
 
     @Transactional
     public void excluirTransferencia(Long id) {

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.controle.financas.financeiro_api.model.Transferencia;
 import com.controle.financas.financeiro_api.service.TransferenciaService;
+import com.controle.financas.financeiro_api.dto.TransferenciaDTO;
 
 @RestController
 @RequestMapping("/api/transferencias")
@@ -34,7 +35,7 @@ public class TransferenciaController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Transferencia>> listarTransferencias() {
+    public ResponseEntity<List<TransferenciaDTO>> listarTransferencias() {
         return ResponseEntity.ok(transferenciaService.listarTodas());
     }
 
