@@ -13,4 +13,6 @@ public interface LancamentoRepository extends JpaRepository<Lancamento, Long> {
     // Soma o valor de todos os lançamentos EM ABERTO de um determinado tipo (RECEITA ou DESPESA)
     @Query("SELECT COALESCE(SUM(l.valor), 0) FROM Lancamento l WHERE l.usuario.id = :usuarioId AND l.pago = false AND l.tipoLancamento = :tipo")
     BigDecimal somarValoresEmAberto(@Param("usuarioId") Long usuarioId, @Param("tipo") String tipo);
+    
+    
 }
