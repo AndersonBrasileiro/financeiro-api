@@ -45,7 +45,7 @@ public class CentroCustoController {
         }
     }
 
-    @PatchMapping("/{id}/status")
+    @PutMapping("/{id}/status")
     public ResponseEntity<?> alternarStatus(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(centroCustoService.alternarStatus(id));
