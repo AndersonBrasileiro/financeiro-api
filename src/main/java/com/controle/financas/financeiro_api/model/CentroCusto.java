@@ -23,11 +23,14 @@ public class CentroCusto {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 100) // Ex: "Projeto A", "Filial Sul", "Uso Pessoal"
+    @Column(nullable = false, length = 100)
     private String nome;
 
-    @Column(nullable = false, length = 20) // REGRA: Guardará "DESPESA", "RECEITA" ou "AMBOS"
+    @Column(nullable = false, length = 20)
     private String tipo;
+
+    @Column
+    private Boolean ativo = true;
 
     @ManyToOne
     @JoinColumn(name = "usuario_id", nullable = false)

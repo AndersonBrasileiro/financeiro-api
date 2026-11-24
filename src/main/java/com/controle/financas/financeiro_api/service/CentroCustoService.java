@@ -1,6 +1,8 @@
 package com.controle.financas.financeiro_api.service;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -8,54 +10,101 @@ import org.springframework.transaction.annotation.Transactional;
 import com.controle.financas.financeiro_api.model.CentroCusto;
 import com.controle.financas.financeiro_api.model.Usuario;
 import com.controle.financas.financeiro_api.repository.CentroCustoRepository;
+import com.controle.financas.financeiro_api.repository.LancamentoRepository;
 
 @Service
 public class CentroCustoService {
 
     private final CentroCustoRepository centroCustoRepository;
+    private final LancamentoRepository lancamentoRepository;
 
-    public CentroCustoService(CentroCustoRepository centroCustoRepository) {
+    public CentroCustoService(CentroCustoRepository centroCustoRepository, LancamentoRepository lancamentoRepository) {
         this.centroCustoRepository = centroCustoRepository;
+        this.lancamentoRepository = lancamentoRepository;
     }
 
-    /**
-     * REGRA DE NEGÓCIO MULTI-TENANT: Salva um Centro de Custo vinculando-o ao usuário logado.
-     */
+    public List<CentroCusto> listarTodosDoUsuario() {
+        Usuario usuarioLogado = getUsuarioAutenticado();
+        return centroCustoRepository.findByUsuarioId(usuarioLogado.getId());
+    }
+
     @Transactional
     public CentroCusto salvar(CentroCusto centroCusto) {
         Usuario usuarioLogado = getUsuarioAutenticado();
         centroCusto.setUsuario(usuarioLogado);
-        
-        // Força o tipo a ficar em maiúsculo para evitar erros de digitação (Ex: "despesa" -> "DESPESA")
         centroCusto.setTipo(centroCusto.getTipo().toUpperCase());
-        
+        if (centroCusto.getAtivo() == null) {
+            centroCusto.setAtivo(true);
+        }
         return centroCustoRepository.save(centroCusto);
     }
 
+    @Transactional
+    public CentroCusto atualizar(Long id, CentroCusto dadosAtualizados) {
+        Usuario usuarioLogado = getUsuarioAutenticado();
+        CentroCusto existente = centroCustoRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Centro de custo não encontrado."));
+
+        if (!existente.getUsuario().getId().equals(usuarioLogado.getId())) {
+            throw new IllegalArgumentException("Acesso negado a este centro de custo.");
+        }
+
+        existente.setNome(dadosAtualizados.getNome());
+        existente.setTipo(dadosAtualizados.getTipo().toUpperCase());
+        return centroCustoRepository.save(existente);
+    }
+
+    @Transactional
+    public CentroCusto alternarStatus(Long id) {
+        Usuario usuarioLogado = getUsuarioAutenticado();
+        CentroCusto existente = centroCustoRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Centro de custo não encontrado."));
+
+        if (!existente.getUsuario().getId().equals(usuarioLogado.getId())) {
+            throw new IllegalArgumentException("Acesso negado a este centro de custo.");
+        }
+
+        boolean statusAtual = existente.getAtivo() == null || existente.getAtivo();
+        existente.setAtivo(!statusAtual);
+        return centroCustoRepository.save(existente);
+    }
+
+    @Transactional
+    public void excluir(Long id) {
+        Usuario usuarioLogado = getUsuarioAutenticado();
+        CentroCusto existente = centroCustoRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Centro de custo não encontrado."));
+
+        if (!existente.getUsuario().getId().equals(usuarioLogado.getId())) {
+            throw new IllegalArgumentException("Acesso negado a este centro de custo.");
+        }
+
+        if (lancamentoRepository.existsByCentroCustoId(id)) {
+            throw new IllegalArgumentException("Não é possível excluir este centro de custo pois existem lançamentos vinculados a ele. Você pode apenas desativá-lo.");
+        }
+
+        centroCustoRepository.delete(existente);
+    }
+
     /**
-     * REGRA DE NEGÓCIO CORE SIMPLIFICADA: Filtra os centros com base no fluxo exato do lançamento.
-     * Se o fluxo da tela for "DESPESA", busca apenas as caixas marcadas como DESPESA.
-     * Se o fluxo da tela for "RECEITA", busca apenas as caixas marcadas como RECEITA.
+     * Retorna apenas os centros ATIVOS para os seletores de Contas a Pagar e Contas a Receber
      */
     public List<CentroCusto> listarPorFluxoELogado(String fluxoLancamento) {
         Usuario usuarioLogado = getUsuarioAutenticado();
         String fluxo = fluxoLancamento.toUpperCase();
 
-        // Validação de segurança de dados: impede o envio de lixo ou tipos inválidos pela URL
         if (!"DESPESA".equals(fluxo) && !"RECEITA".equals(fluxo)) {
             throw new IllegalArgumentException("Fluxo de lançamento inválido. Use estritamente 'DESPESA' ou 'RECEITA'.");
         }
 
-        // Busca de forma direta passando apenas um único tipo na lista filtrada por inquilino
         return centroCustoRepository.findByUsuarioIdAndTipoIn(
-            usuarioLogado.getId(), 
-            java.util.Collections.singletonList(fluxo)
-        );
+                usuarioLogado.getId(),
+                Collections.singletonList(fluxo)
+        ).stream()
+         .filter(c -> c.getAtivo() == null || c.getAtivo())
+         .collect(Collectors.toList());
     }
 
-    /**
-     * MÉTODO AUXILIAR: Extrai o usuário logado do Token JWT
-     */
     private Usuario getUsuarioAutenticado() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return (Usuario) auth.getPrincipal();

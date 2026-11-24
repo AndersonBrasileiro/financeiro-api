@@ -15,4 +15,7 @@ public interface LancamentoRepository extends JpaRepository<Lancamento, Long> {
     BigDecimal somarValoresEmAberto(@Param("usuarioId") Long usuarioId, @Param("tipo") String tipo);
     
     boolean existsByCategoriaId(Long categoriaId);
+    boolean existsByContaId(Long contaId);
+    boolean existsByCentroCustoId(Long centroCustoId);
+
 }

@@ -8,6 +8,7 @@ import com.controle.financas.financeiro_api.model.Conta;
 import com.controle.financas.financeiro_api.model.Usuario;
 import com.controle.financas.financeiro_api.model.Movimentacao;
 import com.controle.financas.financeiro_api.repository.ContaRepository;
+import com.controle.financas.financeiro_api.repository.LancamentoRepository;
 import com.controle.financas.financeiro_api.repository.MovimentacaoRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -18,10 +19,14 @@ public class ContaService {
 
     private final ContaRepository contaRepository;
     private final MovimentacaoRepository movimentacaoRepository;
+    private final LancamentoRepository lancamentoRepository;
 
-    public ContaService(ContaRepository contaRepository, MovimentacaoRepository movimentacaoRepository) {
+    public ContaService(ContaRepository contaRepository,
+                        MovimentacaoRepository movimentacaoRepository,
+                        LancamentoRepository lancamentoRepository) {
         this.contaRepository = contaRepository;
         this.movimentacaoRepository = movimentacaoRepository;
+        this.lancamentoRepository = lancamentoRepository;
     }
 
     public List<Conta> listarTodas() {
@@ -47,24 +52,67 @@ public class ContaService {
         if (ehContaNova) {
             conta.setSaldoAtual(conta.getSaldoInicial());
         }
-        
+
         Conta contaSalva = contaRepository.save(conta);
 
-        // 🚀 GATILHO DE ABERTURA CORRIGIDO: Totalmente alinhado com o seu Model de Movimentacao!
         if (ehContaNova && contaSalva.getSaldoInicial() != null && contaSalva.getSaldoInicial().compareTo(BigDecimal.ZERO) > 0) {
             Movimentacao movInicial = new Movimentacao();
             movInicial.setConta(contaSalva);
             movInicial.setValor(contaSalva.getSaldoInicial());
-            
-            // Atributos mapeados de acordo com o seu LancamentoService
             movInicial.setDataHora(LocalDateTime.now());
-            movInicial.setTipoMovimentacao("ENTRADA"); 
+            movInicial.setTipoMovimentacao("ENTRADA");
             movInicial.setHistorico("Saldo Inicial - Abertura de Conta");
 
             movimentacaoRepository.save(movInicial);
         }
 
         return contaSalva;
+    }
+
+    @Transactional
+    public Conta atualizar(Long id, Conta dadosAtualizados, Long usuarioId) {
+        Conta existente = contaRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Conta bancária não encontrada."));
+
+        if (!existente.getUsuario().getId().equals(usuarioId)) {
+            throw new IllegalArgumentException("Acesso negado a esta conta.");
+        }
+
+        existente.setNome(dadosAtualizados.getNome());
+        existente.setTipoConta(dadosAtualizados.getTipoConta());
+
+        return contaRepository.save(existente);
+    }
+
+    @Transactional
+    public void excluir(Long id, Long usuarioId) {
+        Conta conta = contaRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Conta bancária não encontrada."));
+
+        if (!conta.getUsuario().getId().equals(usuarioId)) {
+            throw new IllegalArgumentException("Acesso negado a esta conta.");
+        }
+
+        // Verifica se há lançamentos (Contas a Pagar/Receber) vinculados
+        if (lancamentoRepository.existsByContaId(id)) {
+            throw new IllegalArgumentException("Não é possível excluir esta conta pois existem lançamentos vinculados a ela.");
+        }
+
+        // Verifica movimentações no extrato (ignorando apenas o registro inicial de abertura)
+        List<Movimentacao> movimentacoes = movimentacaoRepository.findByContaIdOrderByDataHoraDesc(id);
+        boolean possuiMovimentacaoReal = movimentacoes.stream()
+                .anyMatch(m -> !"Saldo Inicial - Abertura de Conta".equals(m.getHistorico()));
+
+        if (possuiMovimentacaoReal) {
+            throw new IllegalArgumentException("Não é possível excluir esta conta pois ela já possui movimentações no extrato.");
+        }
+
+        // Se só tinha a movimentação de abertura, limpa-a antes de apagar a conta
+        if (!movimentacoes.isEmpty()) {
+            movimentacaoRepository.deleteAll(movimentacoes);
+        }
+
+        contaRepository.delete(conta);
     }
 
     private Usuario getUsuarioAutenticado() {
